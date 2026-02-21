@@ -1,8 +1,0 @@
-# AppForecast
-
-streamlit
-pandas
-numpy
-openpyxl
-xlsxwriter
-plotly

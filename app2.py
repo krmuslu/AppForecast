@@ -1,5 +1,3 @@
-# app.py
-# Public-friendly Streamlit + Plotly app for 30D mobile game forecast (DAU / Revenue / Cost / Break-even)
 # Includes: two retention methods (Piecewise vs Exponential), side-by-side comparison, narrative insights,
 # metric definitions, model mechanics, and Excel export.
 
@@ -44,7 +42,7 @@ paid_installs_daily = st.sidebar.number_input("Paid installs per day", 0, 10_000
 st.sidebar.divider()
 days = st.sidebar.slider("Forecast horizon (days)", 7, 180, 30, 1)
 
-show_definitions = st.sidebar.checkbox("Show metric definitions (English)", value=True)
+show_definitions = st.sidebar.checkbox("Show metric definitions ", value=True)
 show_mechanics = st.sidebar.checkbox("Show model mechanics summary", value=True)
 
 run = st.sidebar.button("Run forecast", use_container_width=True)
@@ -458,7 +456,7 @@ st.download_button(
 )
 
 # -----------------------------
-# Explanations (English, human-written)
+# Explanations 
 # -----------------------------
 if show_mechanics:
     st.divider()
@@ -493,7 +491,7 @@ This mirrors how DAU compounds in real mobile growth when daily acquisition is s
 
 if show_definitions:
     st.divider()
-    with st.expander("Metric definitions (plain English)", expanded=False):
+    with st.expander("Metric definitions", expanded=False):
         st.markdown("""
 ### Retention (D1 / D7 / D14 / D30)
 Retention is the percent of users who return on a specific day after install.
@@ -537,3 +535,4 @@ The DAU level where *today’s* ad revenue covers *today’s* UA cost:
 The first day when cumulative profit becomes positive.
 Shorter payback cycles usually enable safer scaling.
 """)
+

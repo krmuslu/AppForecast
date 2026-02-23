@@ -1,6 +1,3 @@
-# Includes: two retention methods (Piecewise vs Exponential), side-by-side comparison, narrative insights,
-# metric definitions, model mechanics, and Excel export.
-
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -42,8 +39,8 @@ paid_installs_daily = st.sidebar.number_input("Paid installs per day", 0, 10_000
 st.sidebar.divider()
 days = st.sidebar.slider("Forecast horizon (days)", 7, 180, 30, 1)
 
-show_definitions = st.sidebar.checkbox("Show metric definitions ", value=True)
-show_mechanics = st.sidebar.checkbox("Show model mechanics summary", value=True)
+show_mechanics = st.sidebar.checkbox("Show model mechanics", value=True)
+show_definitions = st.sidebar.checkbox("Show metric definitions", value=True)
 
 run = st.sidebar.button("Run forecast", use_container_width=True)
 
@@ -54,23 +51,25 @@ if not run:
 # -----------------------------
 # Helpers
 # -----------------------------
+def pct(x: float) -> str:
+    return f"{x:.2%}"
+
+def fmt_money(x: float) -> str:
+    return f"${x:,.0f}"
+
+def fmt_num(x: float) -> str:
+    return f"{x:,.0f}"
+
 def build_retention_piecewise(days_count: int, d1: float, d7: float, d14: float, d30: float):
-    """
-    Piecewise linear interpolation across points (0,1,7,14,30).
-    For days > 30, we hold retention flat at the D30 value.
-    """
     points = {0: 1.0, 1: float(d1), 7: float(d7), 14: float(d14), 30: float(d30)}
     x = np.array(sorted(points.keys()), dtype=float)
     y = np.array([points[i] for i in x], dtype=float)
     idx = np.arange(days_count, dtype=float)
-    idx_clip = np.minimum(idx, 30.0)
+    idx_clip = np.minimum(idx, 30.0)  # hold flat beyond D30
     ret = np.interp(idx_clip, x, y)
     return ret, points
 
 def build_retention_exponential(days_count: int, d1: float):
-    """
-    Exponential decay: R(d) = exp(-lambda * d), calibrated so R(1) = D1.
-    """
     d1 = float(np.clip(d1, 1e-9, 0.999999))
     lam = -np.log(d1)
     idx = np.arange(days_count, dtype=float)
@@ -78,13 +77,9 @@ def build_retention_exponential(days_count: int, d1: float):
     return ret, lam
 
 def cohort_stacking_dau(days_count: int, installs_daily_total: float, retention: np.ndarray):
-    """
-    DAU(t) = sum_{cohort_day=0..t} installs * retention(age)
-    where age = t - cohort_day
-    """
     dau = np.zeros(days_count, dtype=float)
     for t in range(days_count):
-        ages = np.arange(t + 1, dtype=int)[::-1]
+        ages = np.arange(t + 1, dtype=int)[::-1]  # ages = 0..t
         dau[t] = float(np.sum(installs_daily_total * retention[ages]))
     return dau
 
@@ -133,13 +128,13 @@ def make_excel_bytes(inputs_df: pd.DataFrame, out_piece: pd.DataFrame, out_exp: 
         for sh in ["Forecast_Piecewise", "Forecast_Exponential"]:
             ws = writer.sheets[sh]
             ws.set_column("A:A", 6)
-            ws.set_column("B:B", 14, num_fmt)    # DAU
-            ws.set_column("C:C", 14, money_fmt)  # Revenue
-            ws.set_column("D:D", 12, money_fmt)  # Cost
-            ws.set_column("E:E", 14, money_fmt)  # Profit
-            ws.set_column("F:F", 16, money_fmt)  # CumProfit
-            ws.set_column("G:G", 18, dec5_fmt)   # ARPDAU
-            ws.set_column("H:H", 18, num_fmt)    # BreakEven DAU
+            ws.set_column("B:B", 14, num_fmt)
+            ws.set_column("C:C", 14, money_fmt)
+            ws.set_column("D:D", 12, money_fmt)
+            ws.set_column("E:E", 14, money_fmt)
+            ws.set_column("F:F", 16, money_fmt)
+            ws.set_column("G:G", 18, dec5_fmt)
+            ws.set_column("H:H", 18, num_fmt)
 
         ws = writer.sheets["Comparison"]
         ws.set_column("A:A", 6)
@@ -148,39 +143,27 @@ def make_excel_bytes(inputs_df: pd.DataFrame, out_piece: pd.DataFrame, out_exp: 
     bio.seek(0)
     return bio
 
-def pct(x: float) -> str:
-    return f"{x:.2%}"
-
-def fmt_money(x: float) -> str:
-    return f"${x:,.0f}"
-
-def fmt_num(x: float) -> str:
-    return f"{x:,.0f}"
-
 # -----------------------------
 # Derived metrics
 # -----------------------------
 installs_daily_total = paid_installs_daily * (1 + organic_ratio)
 daily_cost = paid_installs_daily * cpi
-
 arpdau_ads = (inter_impr_per_dau * inter_cpm + reward_impr_per_dau * reward_cpm) / 1000.0
 daily_break_even_dau = (daily_cost / arpdau_ads) if arpdau_ads > 0 else np.inf
 
-# Build both retention curves (we will compare them side-by-side)
+# Build both models for comparison 
 ret_piece, piece_points = build_retention_piecewise(days, ret_d1, ret_d7, ret_d14, ret_d30)
 ret_exp, lam = build_retention_exponential(days, ret_d1)
 
-# Compute forecasts
 res_piece = compute_forecast(days, installs_daily_total, daily_cost, arpdau_ads, ret_piece)
 res_exp = compute_forecast(days, installs_daily_total, daily_cost, arpdau_ads, ret_exp)
 
-# Build output tables
+# Tables
 base_cols = {
     "Day": np.arange(1, days + 1),
     "ARPDAU_ads": np.repeat(np.round(arpdau_ads, 5), days),
     "Daily_BreakEven_DAU": np.repeat(np.round(daily_break_even_dau, 2), days),
 }
-
 df_piece = pd.DataFrame({
     **base_cols,
     "DAU": np.round(res_piece["dau"], 2),
@@ -189,7 +172,6 @@ df_piece = pd.DataFrame({
     "Profit": np.round(res_piece["profit"], 2),
     "CumProfit": np.round(res_piece["cum_profit"], 2),
 })
-
 df_exp = pd.DataFrame({
     **base_cols,
     "DAU": np.round(res_exp["dau"], 2),
@@ -199,19 +181,17 @@ df_exp = pd.DataFrame({
     "CumProfit": np.round(res_exp["cum_profit"], 2),
 })
 
-# Comparison summary
+# Summary stats
 avg_dau_piece = float(np.mean(res_piece["dau"]))
 avg_dau_exp = float(np.mean(res_exp["dau"]))
 total_rev_piece = float(res_piece["cum_revenue"][-1])
 total_rev_exp = float(res_exp["cum_revenue"][-1])
-total_cost = float(res_piece["cum_cost"][-1])  # same for both
+total_cost = float(res_piece["cum_cost"][-1])
 total_profit_piece = float(res_piece["cum_profit"][-1])
 total_profit_exp = float(res_exp["cum_profit"][-1])
-
 payback_piece = res_piece["payback_day"]
 payback_exp = res_exp["payback_day"]
 
-# Daily BE achieved?
 daily_be_days_piece = np.where(res_piece["dau"] >= daily_break_even_dau)[0] + 1 if np.isfinite(daily_break_even_dau) else np.array([])
 daily_be_days_exp = np.where(res_exp["dau"] >= daily_break_even_dau)[0] + 1 if np.isfinite(daily_break_even_dau) else np.array([])
 
@@ -223,9 +203,6 @@ comp_df = pd.DataFrame([
     ["Payback Day (cum profit >= 0)", payback_piece if payback_piece else np.nan, payback_exp if payback_exp else np.nan, np.nan],
 ], columns=["Metric", "Piecewise", "Exponential", "Piecewise - Exponential"])
 
-# -----------------------------
-# Inputs table
-# -----------------------------
 inputs_df = pd.DataFrame(
     [
         ["Retention D1/D7/D14/D30", f"{pct(ret_d1)} / {pct(ret_d7)} / {pct(ret_d14)} / {pct(ret_d30)}"],
@@ -247,10 +224,82 @@ inputs_df = pd.DataFrame(
 )
 
 # -----------------------------
-# KPI cards
+# TOP SECTION: Mechanics + Definitions
 # -----------------------------
-st.subheader("Key KPIs")
+if show_mechanics:
+    with st.expander("Model mechanics (what’s happening under the hood)", expanded=True):
+        st.markdown(f"""
+### 1) Derived values
+- **Total installs/day** = Paid × (1 + Organic%)  
+  → `{paid_installs_daily} × (1 + {organic_ratio:.2%}) = {installs_daily_total:,.0f}`
+- **ARPDAU (ads)** = (Inter impressions × Inter CPM + Rewarded impressions × Rewarded CPM) / 1000  
+  → `({inter_impr_per_dau}×{inter_cpm} + {reward_impr_per_dau}×{reward_cpm}) / 1000 = ${arpdau_ads:.3f} per DAU per day`
+- **Daily UA cost** = Paid installs/day × CPI  
+  → `{paid_installs_daily} × ${cpi:.2f} = ${daily_cost:,.0f}`
+- **Daily break-even DAU** = Daily UA cost / ARPDAU  
+  → `${daily_cost:,.0f} / ${arpdau_ads:.3f} = {daily_break_even_dau:,.0f} DAU`
 
+### 2) Retention curves
+- **Piecewise Linear:** Connects D0, D1, D7, D14, D30 with straight lines (simple interpolation).
+- **Exponential:** Uses **R(d)=exp(-λd)** and calibrates **λ** so that **R(1)=D1** (a smooth benchmark).
+
+### 3) DAU forecast via cohort stacking
+Each day adds a new cohort. On day *t*, we sum active users across all cohorts:
+
+**DAU(t) = Σ installs(cohort_day) × retention(age)**, where **age = t − cohort_day**.
+
+### 4) Revenue, cost, profit
+- **Revenue(t) = DAU(t) × ARPDAU**
+- **Profit(t) = Revenue(t) − Daily UA cost**
+- **Payback day** is the first day where cumulative profit crosses zero.
+""")
+
+if show_definitions:
+    with st.expander("Metric definitions", expanded=True):
+        st.markdown("""
+### Retention (D1 / D7 / D14 / D30)
+Retention is the percent of users who return on a specific day after install.
+- **D1** reflects first impression (onboarding + early fun).
+- **D7** is early habit formation.
+- **D30** is long-term stickiness.
+
+### DAU (Daily Active Users)
+Unique users who play on a given day. In ads-heavy games, DAU is the main volume driver.
+
+### Impressions per DAU
+Ads shown per active user per day.
+- More impressions usually increase revenue,
+- but too many interstitials can hurt retention.
+
+### CPM (Cost per Mille)
+Revenue per 1,000 impressions. Higher CPM means impressions are more valuable.
+
+### ARPDAU (Average Revenue per DAU)
+Average ad revenue generated by one active user in one day:  
+**ARPDAU = (Inter Impr × Inter CPM + Rewarded Impr × Rewarded CPM) / 1000**
+
+### CPI (Cost per Install)
+How much you pay for one paid install. Scaling requires a clear path to **LTV > CPI**.
+
+### Organic ratio
+Organic installs relative to paid installs. Higher organic reduces blended cost and improves efficiency.
+
+### Daily break-even DAU
+DAU level where *today’s* ad revenue covers *today’s* UA cost:  
+**Break-even DAU = Daily UA cost / ARPDAU**
+
+### Payback day
+First day when cumulative profit becomes positive.
+""")
+
+st.divider()
+
+# -----------------------------
+# MIDDLE SECTION: Charts + Results
+# -----------------------------
+st.subheader("Results")
+
+# KPI cards
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("ARPDAU (ads)", "-" if arpdau_ads <= 0 else f"${arpdau_ads:.3f}")
 k2.metric("Daily UA Cost", fmt_money(daily_cost))
@@ -258,86 +307,9 @@ k3.metric("Daily Break-even DAU", "-" if not np.isfinite(daily_break_even_dau) e
 k4.metric("Total Installs/day", fmt_num(installs_daily_total))
 k5.metric("Horizon", f"{days} days")
 
-# -----------------------------
-# Narrative insights (automatic commentary)
-# -----------------------------
-st.subheader("What the results suggest (auto commentary)")
-
-def commentary_for_method(name: str, payback_day, daily_be_days, total_profit: float, total_rev: float):
-    lines = []
-    if arpdau_ads <= 0:
-        return ["ARPDAU is 0 (or negative), which means ad revenue cannot be computed. Check CPM and impression inputs."]
-
-    # Daily break-even
-    if daily_be_days.size > 0:
-        lines.append(f"- **Daily break-even** is first reached on **Day {int(daily_be_days[0])}** (DAU crosses the daily break-even threshold).")
-    else:
-        lines.append(f"- **Daily break-even is not reached** within {days} days (DAU stays below the daily break-even threshold).")
-
-    # Payback
-    if payback_day is not None:
-        lines.append(f"- **Payback day (cumulative profit turns positive)** happens on **Day {payback_day}**.")
-    else:
-        lines.append(f"- **No payback within {days} days** (cumulative profit remains negative).")
-
-    # End-state
-    sign = "positive" if total_profit >= 0 else "negative"
-    lines.append(f"- End of horizon: cumulative profit is **{sign}** (**{fmt_money(total_profit)}**) on total revenue **{fmt_money(total_rev)}**.")
-    return [f"**{name}**"] + lines
-
-colA, colB = st.columns(2)
-with colA:
-    for s in commentary_for_method("Piecewise model", payback_piece, daily_be_days_piece, total_profit_piece, total_rev_piece):
-        st.write(s)
-
-with colB:
-    for s in commentary_for_method("Exponential model", payback_exp, daily_be_days_exp, total_profit_exp, total_rev_exp):
-        st.write(s)
-
-# Comparison callout
-st.markdown("**Model comparison (how to interpret the difference):**")
-if abs(total_profit_piece - total_profit_exp) < 1e-6:
-    st.write("- Both models land on effectively the same profit. That usually happens when retention shapes are similar in the first weeks.")
-else:
-    better = "Piecewise" if total_profit_piece > total_profit_exp else "Exponential"
-    delta = total_profit_piece - total_profit_exp
-    st.write(f"- **{better}** is more optimistic here by **{fmt_money(abs(delta))}** cumulative profit over {days} days.")
-    st.write("- In practice, Piecewise is usually preferred when you trust the D7/D14/D30 points; exponential is a smoother benchmark.")
-
-st.write("- If you want a conservative planning view, consider using the lower of the two profit curves as your base case.")
-
-# Actionable growth levers (simple heuristic guidance)
-st.markdown("**Where I’d look first (practical levers):**")
-if arpdau_ads > 0 and daily_break_even_dau != np.inf:
-    st.write("- If you’re missing break-even, you typically need either **higher ARPDAU** (CPM/ad load) or **higher retention** (more DAU compounding).")
-st.write("- Rewarded ads are often a safer ARPDAU lever than interstitial frequency (less retention damage when designed well).")
-st.write("- CPI is the hard constraint: if CPI rises, payback moves out unless retention/monetization improves.")
-
-# -----------------------------
-# Layout: tables
-# -----------------------------
-t1, t2, t3 = st.columns([1, 1, 1])
-with t1:
-    st.subheader("Inputs")
-    st.dataframe(inputs_df, use_container_width=True, height=420)
-
-with t2:
-    st.subheader("Forecast (Piecewise)")
-    st.dataframe(df_piece, use_container_width=True, height=420)
-
-with t3:
-    st.subheader("Forecast (Exponential)")
-    st.dataframe(df_exp, use_container_width=True, height=420)
-
-st.subheader("Comparison summary")
-st.dataframe(comp_df, use_container_width=True)
-
-# -----------------------------
-# Plotly charts
-# -----------------------------
+# Charts
 st.subheader("Charts (interactive)")
 
-# Chart 1: DAU comparison + break-even line
 fig1 = go.Figure()
 fig1.add_trace(go.Scatter(
     x=df_piece["Day"], y=df_piece["DAU"],
@@ -363,7 +335,6 @@ fig1.update_layout(
 )
 st.plotly_chart(fig1, use_container_width=True)
 
-# Chart 2: Daily revenue vs cost (piecewise) + (optional) exponential
 fig2 = go.Figure()
 fig2.add_trace(go.Scatter(
     x=df_piece["Day"], y=df_piece["Revenue"],
@@ -389,7 +360,6 @@ fig2.update_layout(
 )
 st.plotly_chart(fig2, use_container_width=True)
 
-# Chart 3: Cumulative profit comparison
 fig3 = go.Figure()
 fig3.add_trace(go.Scatter(
     x=df_piece["Day"], y=df_piece["CumProfit"],
@@ -410,7 +380,6 @@ fig3.update_layout(
 )
 st.plotly_chart(fig3, use_container_width=True)
 
-# Chart 4: Retention curves used
 fig4 = go.Figure()
 fig4.add_trace(go.Scatter(
     x=np.arange(days), y=ret_piece,
@@ -431,21 +400,36 @@ fig4.update_layout(
 )
 st.plotly_chart(fig4, use_container_width=True)
 
-# -----------------------------
-# Excel export
-# -----------------------------
+# Tables
+st.subheader("Tables")
+t1, t2, t3 = st.columns([1, 1, 1])
+with t1:
+    st.markdown("**Inputs**")
+    st.dataframe(inputs_df, use_container_width=True, height=380)
+with t2:
+    st.markdown("**Forecast (Piecewise)**")
+    st.dataframe(df_piece, use_container_width=True, height=380)
+with t3:
+    st.markdown("**Forecast (Exponential)**")
+    st.dataframe(df_exp, use_container_width=True, height=380)
+
+st.subheader("Comparison summary")
+st.dataframe(comp_df, use_container_width=True)
+
+# Excel export (kept near results section)
 notes = (
     "Generated by the 30-Day Forecast Dashboard.\n\n"
-    "How to read:\n"
-    "- Forecast_* sheets: Daily DAU, Revenue, Cost, Profit, CumProfit.\n"
-    "- Comparison: Side-by-side totals and averages.\n\n"
-    "Important:\n"
-    "- This is an ads-only revenue model (no IAP).\n"
-    "- Cohort stacking assumes constant daily installs.\n"
-    "- Piecewise is anchored to D1/D7/D14/D30 points.\n"
+    "Sheets:\n"
+    "- Inputs\n"
+    "- Forecast_Piecewise\n"
+    "- Forecast_Exponential\n"
+    "- Comparison\n\n"
+    "Notes:\n"
+    "- Ads-only revenue model (no IAP).\n"
+    "- Constant daily installs assumption.\n"
+    "- Piecewise anchored to D1/D7/D14/D30.\n"
     "- Exponential is a smooth benchmark fit to D1.\n"
 )
-
 excel_bytes = make_excel_bytes(inputs_df, df_piece, df_exp, comp_df, notes)
 st.download_button(
     "Download Excel (Inputs + Both Forecasts + Comparison)",
@@ -455,84 +439,51 @@ st.download_button(
     use_container_width=True,
 )
 
+st.divider()
+
 # -----------------------------
-# Explanations 
+# BOTTOM SECTION: Auto commentary
 # -----------------------------
-if show_mechanics:
-    st.divider()
-    with st.expander("Model mechanics (what’s happening under the hood)", expanded=False):
-        st.markdown(f"""
-### 1) Derived values
-- **Total installs/day** = Paid × (1 + Organic%)  
-  → `{paid_installs_daily} × (1 + {organic_ratio:.2%}) = {installs_daily_total:,.0f}`
-- **ARPDAU (ads)** = (Inter impressions × Inter CPM + Rewarded impressions × Rewarded CPM) / 1000  
-  → `({inter_impr_per_dau}×{inter_cpm} + {reward_impr_per_dau}×{reward_cpm}) / 1000 = ${arpdau_ads:.3f} per DAU per day`
-- **Daily UA cost** = Paid installs/day × CPI  
-  → `{paid_installs_daily} × ${cpi:.2f} = ${daily_cost:,.0f}`
-- **Daily break-even DAU** = Daily UA cost / ARPDAU  
-  → `${daily_cost:,.0f} / ${arpdau_ads:.3f} = {daily_break_even_dau:,.0f} DAU`
+st.subheader("Commentary")
 
-### 2) Retention curve construction
-- **Piecewise Linear:** We connect D0, D1, D7, D14, D30 with straight lines (simple interpolation).
-- **Exponential:** We use **R(d)=exp(-λd)** and set **R(1)=D1** (a smooth benchmark).
+def commentary_for_method(name: str, payback_day, daily_be_days, total_profit: float, total_rev: float):
+    lines = []
+    if arpdau_ads <= 0:
+        return ["ARPDAU is 0 (or negative). Please check CPM and impression inputs."]
 
-### 3) DAU forecast via cohort stacking
-Every day adds a new cohort of installs. On day *t*, we sum active users from all cohorts:
+    if daily_be_days.size > 0:
+        lines.append(f"- **Daily break-even** is first reached on **Day {int(daily_be_days[0])}**.")
+    else:
+        lines.append(f"- **Daily break-even is not reached** within {days} days (DAU stays below the threshold).")
 
-**DAU(t) = Σ installs(cohort_day) × retention(age)**, where **age = t − cohort_day**.
+    if payback_day is not None:
+        lines.append(f"- **Payback day (cumulative profit turns positive)** happens on **Day {payback_day}**.")
+    else:
+        lines.append(f"- **No payback within {days} days** (cumulative profit remains negative).")
 
-This mirrors how DAU compounds in real mobile growth when daily acquisition is steady.
+    sign = "positive" if total_profit >= 0 else "negative"
+    lines.append(f"- End of horizon: cumulative profit is **{sign}** (**{fmt_money(total_profit)}**) on total revenue **{fmt_money(total_rev)}**.")
+    return [f"**{name}**"] + lines
 
-### 4) Revenue, cost, profit
-- **Revenue(t) = DAU(t) × ARPDAU**
-- **Profit(t) = Revenue(t) − Daily UA cost**
-- **Payback day** is the first day where cumulative profit crosses zero.
-""")
+colA, colB = st.columns(2)
+with colA:
+    for s in commentary_for_method("Piecewise model", payback_piece, daily_be_days_piece, total_profit_piece, total_rev_piece):
+        st.write(s)
 
-if show_definitions:
-    st.divider()
-    with st.expander("Metric definitions", expanded=False):
-        st.markdown("""
-### Retention (D1 / D7 / D14 / D30)
-Retention is the percent of users who return on a specific day after install.
-- **D1** is your first impression: onboarding + early fun.
-- **D7** is early habit formation: “is this game part of my routine?”
-- **D30** is long-term stickiness.
+with colB:
+    for s in commentary_for_method("Exponential model", payback_exp, daily_be_days_exp, total_profit_exp, total_rev_exp):
+        st.write(s)
 
-Higher retention compounds DAU over time and is one of the strongest drivers of LTV.
+st.markdown("**How to interpret the difference between the two models:**")
+delta_profit = total_profit_piece - total_profit_exp
+if abs(delta_profit) < 1e-6:
+    st.write("- Both models land on virtually the same cumulative profit over this horizon.")
+else:
+    better = "Piecewise" if delta_profit > 0 else "Exponential"
+    st.write(f"- **{better}** is more optimistic here by **{fmt_money(abs(delta_profit))}** cumulative profit over {days} days.")
+    st.write("- In real planning, I’d usually trust Piecewise more if you believe the D7/D14/D30 points are reliable; Exponential is a good smooth benchmark.")
 
-### DAU (Daily Active Users)
-DAU is the number of unique users who play the game on a given day.
-For ad-monetized games, DAU is the main volume driver: revenue scales with it.
-
-### Impressions per DAU
-How many ads each active user sees per day.
-- More impressions usually increase revenue.
-- But pushing interstitials too hard can hurt retention (so you want a balance).
-
-### CPM (Cost per Mille)
-Revenue per 1,000 impressions.
-Higher CPM means each impression is more valuable (often driven by geo, demand, and traffic quality).
-
-### ARPDAU (Average Revenue per DAU)
-Average ad revenue generated by one active user in one day.
-In this dashboard:  
-**ARPDAU = (Inter Impr × Inter CPM + Rewarded Impr × Rewarded CPM) / 1000**
-
-### CPI (Cost per Install)
-How much you pay for one paid install.
-To scale profitably, you typically want **LTV > CPI** (or at least a clear path to get there).
-
-### Organic ratio
-Organic installs relative to paid installs.
-Higher organic uplift reduces blended acquisition cost and improves growth efficiency.
-
-### Daily break-even DAU
-The DAU level where *today’s* ad revenue covers *today’s* UA cost:
-**Break-even DAU = Daily UA cost / ARPDAU**
-
-### Payback day
-The first day when cumulative profit becomes positive.
-Shorter payback cycles usually enable safer scaling.
-""")
-
+st.markdown("**Practical levers :**")
+st.write("- If you’re below break-even, you typically need **higher ARPDAU** (CPM/ad load) or **better retention** (more DAU compounding).")
+st.write("- Rewarded ads are often a safer ARPDAU lever than increasing interstitial frequency.")
+st.write("- CPI is the hard constraint: if CPI rises, payback moves out unless retention/monetization improves.")

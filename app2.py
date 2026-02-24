@@ -441,36 +441,36 @@ st.download_button(
 
 st.divider()
 
-# -----------------------------
-# BOTTOM SECTION: Auto commentary
+# BOTTOM SECTION:Commentary 
 # -----------------------------
 st.subheader("Commentary")
 
-def commentary_for_method(name: str, payback_day, daily_be_days, total_profit: float, total_rev: float):
-    lines = []
-    if arpdau_ads <= 0:
-        return ["ARPDAU is 0 (or negative). Please check CPM and impression inputs."]
+left, right = st.columns(2)
 
-    if daily_be_days.size > 0:
-        lines.append(f"- **Daily break-even** is first reached on **Day {int(daily_be_days[0])}**.")
-    else:
-        lines.append(f"- **Daily break-even is not reached** within {days} days (DAU stays below the threshold).")
+with left:
+    st.markdown("### Piecewise Model")
+    st.markdown(f"- **Daily break-even:** {'Reached on **Day ' + str(int(daily_be_days_piece[0])) + '**' if daily_be_days_piece.size > 0 else 'Not reached within 30 days'}")
+    st.markdown(f"- **Payback:** {'Achieved on **Day ' + str(payback_piece) + '**' if payback_piece is not None else 'Not achieved within 30 days'}")
+    st.markdown("**End of 30 days:**")
+    st.markdown(f"- Total Revenue: **{fmt_money(total_rev_piece)}**")
+    st.markdown(f"- Cumulative Profit: **{fmt_money(total_profit_piece)}**")
 
-    if payback_day is not None:
-        lines.append(f"- **Payback day (cumulative profit turns positive)** happens on **Day {payback_day}**.")
-    else:
-        lines.append(f"- **No payback within {days} days** (cumulative profit remains negative).")
+with right:
+    st.markdown("### Exponential Model")
+    st.markdown(f"- **Daily break-even:** {'Reached on **Day ' + str(int(daily_be_days_exp[0])) + '**' if daily_be_days_exp.size > 0 else 'Not reached within 30 days'}")
+    st.markdown(f"- **Payback:** {'Achieved on **Day ' + str(payback_exp) + '**' if payback_exp is not None else 'Not achieved within 30 days'}")
+    st.markdown("**End of 30 days:**")
+    st.markdown(f"- Total Revenue: **{fmt_money(total_rev_exp)}**")
+    st.markdown(f"- Cumulative Profit: **{fmt_money(total_profit_exp)}**")
 
-    sign = "positive" if total_profit >= 0 else "negative"
-    lines.append(f"- End of horizon: cumulative profit is **{sign}** (**{fmt_money(total_profit)}**) on total revenue **{fmt_money(total_rev)}**.")
-    return [f"**{name}**"] + lines
+st.markdown("---")
 
-colA, colB = st.columns(2)
-with colA:
-    for s in commentary_for_method("Piecewise model", payback_piece, daily_be_days_piece, total_profit_piece, total_rev_piece):
-        st.write(s)
-
-with colB:
-    for s in commentary_for_method("Exponential model", payback_exp, daily_be_days_exp, total_profit_exp, total_rev_exp):
-        st.write(s)
-
+# Optional: one-line strategic takeaway
+delta_profit = total_profit_piece - total_profit_exp
+st.markdown("### Strategic Takeaway")
+st.markdown(
+    f"- Retention assumptions create a **{fmt_money(abs(delta_profit))}** variance in 30-day outcome."
+)
+st.markdown(
+    "- Piecewise is closer to sustainability, but still ends negative; Exponential highlights downside risk."
+)

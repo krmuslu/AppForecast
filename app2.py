@@ -474,16 +474,3 @@ with colB:
     for s in commentary_for_method("Exponential model", payback_exp, daily_be_days_exp, total_profit_exp, total_rev_exp):
         st.write(s)
 
-st.markdown("**How to interpret the difference between the two models:**")
-delta_profit = total_profit_piece - total_profit_exp
-if abs(delta_profit) < 1e-6:
-    st.write("- Both models land on virtually the same cumulative profit over this horizon.")
-else:
-    better = "Piecewise" if delta_profit > 0 else "Exponential"
-    st.write(f"- **{better}** is more optimistic here by **{fmt_money(abs(delta_profit))}** cumulative profit over {days} days.")
-    st.write("- In real planning, I’d usually trust Piecewise more if you believe the D7/D14/D30 points are reliable; Exponential is a good smooth benchmark.")
-
-st.markdown("**Practical levers :**")
-st.write("- If you’re below break-even, you typically need **higher ARPDAU** (CPM/ad load) or **better retention** (more DAU compounding).")
-st.write("- Rewarded ads are often a safer ARPDAU lever than increasing interstitial frequency.")
-st.write("- CPI is the hard constraint: if CPI rises, payback moves out unless retention/monetization improves.")
